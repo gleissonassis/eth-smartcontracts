@@ -2,6 +2,7 @@ pragma solidity ^0.4.18;
 
 import './ERC865.sol';
 import 'openzeppelin-solidity/contracts/token/ERC20/MintableToken.sol';
+import 'openzeppelin-solidity/contracts/token/ERC20/BurnableToken.sol';
 
 /**
  * @title ERC865Token Token
@@ -11,13 +12,14 @@ import 'openzeppelin-solidity/contracts/token/ERC20/MintableToken.sol';
  *
  */
 
-contract ERC865Token is ERC865, MintableToken {
+contract ERC865Token is ERC865, MintableToken, BurnableToken {
 
 
     /* Nonces of transfers performed */
     mapping(bytes => bool) signatures;
 
     event TransferPreSigned(address indexed from, address indexed to, address indexed delegate, uint256 amount, uint256 fee);
+    event BurnPreSigned(address indexed from, address indexed delegate, uint256 amount, uint256 fee);
     event ApprovalPreSigned(address indexed from, address indexed to, address indexed delegate, uint256 amount, uint256 fee);
 
     /**
@@ -54,6 +56,40 @@ contract ERC865Token is ERC865, MintableToken {
         Transfer(from, _to, _value);
         Transfer(from, msg.sender, _fee);
         TransferPreSigned(from, _to, msg.sender, _value, _fee);
+        return true;
+    }
+
+    /**
+     * @notice Submit a presigned burn
+     * @param _signature bytes The signature, issued by the owner.
+     * @param _value uint256 The amount of tokens to be transferred.
+     * @param _fee uint256 The amount of tokens paid to msg.sender, by the owner.
+     * @param _nonce uint256 Presigned transaction number.
+     */
+    function burnPreSigned(
+        bytes _signature,
+        uint256 _value,
+        uint256 _fee,
+        uint256 _nonce
+    )
+        public
+        returns (bool)
+    {
+        require(signatures[_signature] == false);
+
+        bytes32 hashedTx = burnPreSignedHashing(address(this), _value, _fee, _nonce);
+
+        address from = recover(hashedTx, _signature);
+        require(from != address(0));
+
+        _burn(from, _value);
+
+        balances[from] = balances[from].sub(_fee);
+        balances[msg.sender] = balances[msg.sender].add(_fee);
+        signatures[_signature] = true;
+
+        Transfer(from, msg.sender, _fee);
+        BurnPreSigned(from, msg.sender, _value, _fee);
         return true;
     }
 
@@ -233,6 +269,27 @@ contract ERC865Token is ERC865, MintableToken {
     {
         /* "48664c16": transferPreSignedHashing(address,address,address,uint256,uint256,uint256) */
         return keccak256(bytes4(0x48664c16), _token, _to, _value, _fee, _nonce);
+    }
+
+    /**
+     * @notice Hash (keccak256) of the payload used by burnPreSignedHashing
+     * @param _token address The address of the token.
+     * @param _value uint256 The amount of tokens to be transferred.
+     * @param _fee uint256 The amount of tokens paid to msg.sender, by the owner.
+     * @param _nonce uint256 Presigned transaction number.
+     */
+    function burnPreSignedHashing(
+        address _token,
+        uint256 _value,
+        uint256 _fee,
+        uint256 _nonce
+    )
+        public
+        pure
+        returns (bytes32)
+    {
+        /* "0x48664c17": burnPreSignedHashing(address,address,uint256,uint256,uint256) */
+        return keccak256(bytes4(0x48664c17), _token, _value, _fee, _nonce);
     }
 
     /**
